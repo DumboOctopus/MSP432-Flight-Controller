@@ -28,6 +28,10 @@
  * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
  * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ * green wire: transmit
+ * blue wire: recieve
+ *
  */
 
 /*
@@ -44,16 +48,18 @@
 /* Driver configuration */
 #include "ti_drivers_config.h"
 
+#include "srxl2.h"
+
+UART_Handle debugUart();
+UART_Handle initRadioUart();
+
 /*
  *  ======== mainThread ========
  */
-void *mainThread(void *arg0)
+void mainThread(void *arg0)
 {
-    char        input;
-    const char  echoPrompt[] = "Echoing characters:\r\n";
     UART_Handle uart;
-    UART_Handle print;
-    UART_Params uartParams;
+    //UART_Handle print;
 
     /* Call driver init functions */
     GPIO_init();
@@ -65,6 +71,20 @@ void *mainThread(void *arg0)
     /* Turn on user LED */
     GPIO_write(CONFIG_GPIO_LED_0, CONFIG_GPIO_LED_ON);
 
+
+    //print = debugUart();
+    uart = initRadioUart();
+
+    //UART_write(print, echoPrompt, sizeof(echoPrompt));
+    printf("hello world\n");
+    /* Loop forever echoing */
+    ProcessPackets(uart);
+}
+
+UART_Handle initRadioUart()
+{
+    UART_Handle uart;
+    UART_Params uartParams;
     /* Create a UART with data processing off. */
     UART_Params_init(&uartParams);
     uartParams.writeDataMode = UART_DATA_BINARY;
@@ -74,21 +94,11 @@ void *mainThread(void *arg0)
     uartParams.baudRate = 115200;
 
     uart = UART_open(CONFIG_UART_1, &uartParams);
-    print = debugUart();
-
     if (uart == NULL) {
         /* UART_open() failed */
         while (1);
     }
-
-    UART_write(uart, echoPrompt, sizeof(echoPrompt));
-    printf("hello world\n");
-    /* Loop forever echoing */
-    while (1) {
-        UART_read(uart, &input, 1);
-        UART_write(print, &input, 1);
-        //UART_write(uart, &input, 1);
-    }
+    return uart;
 }
 
 /**
