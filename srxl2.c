@@ -41,12 +41,67 @@ bool verifyPacket(uint8_t* buf, int length)
     return computedCRC = rxCRC;
 }
 
+// ========= Create Message Functions
+void CreateHandshake(SrxlHandshake_t*  packet)
+{
+    packet->header.srxlID = SPEKTRUM_SRXL_ID;
+    packet->header.packetType = SRXL_HANDSHAKE_ID;
+    packet->header.length = SRXL_HANDSHAKE_LENGTH;
+
+    // TODO: make lower nibble 0 if annoucing presence
+    packet->srcDevID = SRXL_SRC_ID;
+    packet->destDevID = 0;
+    packet->priority = 10;
+    // TODO: look up if higher baud rate is supported
+    // for MSP 432
+    packet->baud_rate = 0;
+    // TODO: if later want to fancy stuff, change this
+    packet->info = 0;
+    packet->uid = SRXL_HANDSHAKE_UID;
+}
+
+
+
+// ========== Processing Functions
+
+/**
+ * TODO: might want to handle switching of baud rate
+ *
+ */
+bool ProcessHandshake(uint8_t* packet)
+{
+    SrxlHandshake_t* handshake = (SrxlHandshake_t*) packet;
+    uint8_t dest_id = handshake->destDevID;
+
+    // now write our response
+    if(dest_id == 0xFF)
+    {
+        // commands everyone to set their baud rate.
+    }
+    if(dest_id == SRXL_SRC_ID)
+    {
+
+    }
+}
+
+
+
+
+static inline void ProcessMessage(uint8_t type, uint8_t* packetBuff)
+{
+    switch(type)
+    {
+    case SRXL_HANDSHAKE_ID:
+        ProcessHandshake(packetBuff);
+        break;
+    }
+}
 
 // TODO: all data values are in little endian. verify that MSP 432 is little endian
 void ProcessPackets(UART_Handle uart)
 {
     uint8_t        value;
-    uint8_t        packetBuffer[35]; // TODO replace with MAX(HANDSHAKE_SIZE, PARAMETER_LENGTH, ...)
+    uint8_t        packetBuffer[SRXL_MAX_BUFFER_SIZE];
 
     while (1) {
         int_fast32_t bytesRead = UART_read(uart, &value, 1);
