@@ -128,16 +128,19 @@ static bool ProcessCtrlData(SrxlPacket_t* packet)
 {
     size_t i;
     SrxlControlData_t* ctrlData = (SrxlControlData_t*) packet;
+    uint16_t* chnData;
 
     switch(ctrlData->cmd)
     {
     case SRXL_CHANNEL_DATA_CMD:
-        // channel 0= thrust, 6=aileron, 1=elavator, (3,7=rudder ??)
+        // 0=thrust, 1=ailerons (343,1024, 1705) 2=elavator, 3=rudder, 5=ax1
+        chnData = &(ctrlData->channelData.values[0]);
         for(i =0; i < SRXL_MAX_CHANNELS; i++)
         {
             if( ( (1 << i ) & ctrlData->channelData.mask ) != 0)
             {
-                uint16_t actualData = ctrlData->channelData.values[i] >> 5;
+                uint16_t actualData = *chnData >> 5;
+                chnData++; // move to next data point.
                 if(channelData[i] != actualData)
                 {
                     channelData[i] = actualData;
@@ -215,7 +218,5 @@ void ProcessPackets(HalfDuplexUart_t hdu)
                 }
             }
         }
-        //UART_write(print, &value, 1);
-        //UART_write(uart, &value, 1);
     }
 }
