@@ -5,7 +5,7 @@
  *      Author: Neil
  */
 #include "srxl2.h"
-
+#include "half_duplex_uart.h"
 
 
 // TODO: in the future, look into MSP 432's CRC hardware
@@ -28,6 +28,21 @@ uint16_t Crc16(uint16_t crc, uint8_t data)
 }
 
 
+void addCRC(uint8_t* buf, int maxLength) {
+    uint16_t computedCRC = 0;
+
+    // last two bytes are for crc
+    for(uint8_t i = 0; i < maxLength -2; ++i){
+        computedCRC = Crc16(computedCRC, buf[i]);
+    }
+
+    // upper byte because big endian
+    // TODO: use FreeRTOS_htons
+    buf[maxLength-2] = (uint8_t) (computedCRC >> 8);
+    buf[maxLength-1] = (uint8_t) (computedCRC & 0xff);
+
+}
+
 bool verifyPacket(uint8_t* buf, int length)
 {
     uint8_t i;
@@ -41,8 +56,8 @@ bool verifyPacket(uint8_t* buf, int length)
     return computedCRC = rxCRC;
 }
 
-// ========= Create Message Functions
-void CreateHandshake(SrxlHandshake_t*  packet)
+// ========= Create Message Functions ==========
+void CreateHandshake(SrxlHandshake_t* packet)
 {
     packet->header.srxlID = SPEKTRUM_SRXL_ID;
     packet->header.packetType = SRXL_HANDSHAKE_ID;
@@ -58,17 +73,19 @@ void CreateHandshake(SrxlHandshake_t*  packet)
     // TODO: if later want to fancy stuff, change this
     packet->info = 0;
     packet->uid = SRXL_HANDSHAKE_UID;
+
+    addCRC((uint8_t*) packet, SRXL_HANDSHAKE_LENGTH);
 }
 
 
 
-// ========== Processing Functions
+// ========== Processing Functions ===========
 
 /**
  * TODO: might want to handle switching of baud rate
  *
  */
-bool ProcessHandshake(uint8_t* packet)
+bool ProcessHandshake(SrxlPacket_t packet)
 {
     SrxlHandshake_t* handshake = (SrxlHandshake_t*) packet;
     uint8_t dest_id = handshake->destDevID;
@@ -82,48 +99,64 @@ bool ProcessHandshake(uint8_t* packet)
     {
 
     }
+
+    return false;
 }
 
-
-
-
-static inline void ProcessMessage(uint8_t type, uint8_t* packetBuff)
+static void ProcessMessage(SrxlPacket_t packet)
 {
+    bool reply = false;
+
+
+
     switch(type)
     {
     case SRXL_HANDSHAKE_ID:
-        ProcessHandshake(packetBuff);
+        reply = ProcessHandshake(packet);
         break;
     }
+
+    return reply;
 }
 
-// TODO: all data values are in little endian. verify that MSP 432 is little endian
-void ProcessPackets(UART_Handle uart)
+// ======================== non static functions =================//
+
+void Init(UART_Handle uart)
 {
-    uint8_t        value;
-    uint8_t        packetBuffer[SRXL_MAX_BUFFER_SIZE];
+
+}
+
+
+// TODO: all data values are in little endian. verify that MSP 432 is little endian
+void ProcessPackets(HalfDuplexUart_t hdu)
+{
+    SrxlPacket_t   packet;
 
     while (1) {
-        int_fast32_t bytesRead = UART_read(uart, &value, 1);
+        int_fast32_t bytesRead = HduRead(hdu, &packet, 1);
 
-        if(bytesRead > 0 && value == SPEKTRUM_SRXL_ID)
+        if(bytesRead > 0 && packet.srxlID == SPEKTRUM_SRXL_ID)
         {
-            uint8_t type, length;
-            UART_read(uart, &type, 1);
-            UART_read(uart, &length, 1);
+            HduRead(hdu, &packet.header.type, 1);
+            HduRead(hdu, &packet.header.length, 1);
 
             // next we will read the entire packet and store it in
             // a buffer
-            packetBuffer[0] = SPEKTRUM_SRXL_ID;
-            packetBuffer[1] = type;
-            packetBuffer[2] = length;
 
             // TODO: handle case where UART_read does not read all bytes
-            UART_read(uart, &packetBuffer[3], length-3);
+            HduRead(
+                hdu, 
+                packet.packetBuffer, 
+                packet.header.length-sizeof(packet.header)
+            );
 
-            if(verifyPacket(packetBuffer, length))
+            if(verifyPacket( (void*) &packet, packet.header.length))
             {
-                printf("hi");
+                bool reply = ProcessMessage(packet);
+                if(reply)
+                {
+                    HduWrite(hdu, packet, packet.header.length);
+                }
             }
         }
         //UART_write(print, &value, 1);

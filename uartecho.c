@@ -48,6 +48,7 @@
 /* Driver configuration */
 #include "ti_drivers_config.h"
 
+// internal dependencies
 #include "srxl2.h"
 
 UART_Handle debugUart();
@@ -76,7 +77,9 @@ void mainThread(void *arg0)
     uart = initRadioUart();
 
     //UART_write(print, echoPrompt, sizeof(echoPrompt));
-    printf("hello world\n");
+    
+
+
     /* Loop forever echoing */
     ProcessPackets(uart);
 }

@@ -33,7 +33,16 @@ typedef struct
     uint8_t packetType;
     uint8_t length;
 
-} SrxlHeader_t;
+} __attribute__((packed)) SrxlHeader_t;
+
+
+typedef struct
+{
+    SrxlHeader_t header;
+    uint8_t        packetBuffer[SRXL_MAX_BUFFER_SIZE];
+} __attribute__((packed)) SrxlPacket_t;
+
+
 
 // Handshake
 typedef struct SrxlHandshake
