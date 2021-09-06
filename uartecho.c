@@ -50,6 +50,7 @@
 
 // internal dependencies
 #include "srxl2.h"
+#include "half_duplex_uart.h"
 
 UART_Handle debugUart();
 UART_Handle initRadioUart();
@@ -72,16 +73,22 @@ void mainThread(void *arg0)
     /* Turn on user LED */
     GPIO_write(CONFIG_GPIO_LED_0, CONFIG_GPIO_LED_ON);
 
+    GPIO_setConfig(CONFIG_GPIO_UART_CTRL, GPIO_CFG_OUT_STD | GPIO_CFG_OUT_HIGH);
+
+    GPIO_write(CONFIG_GPIO_UART_CTRL, 1);
 
     //print = debugUart();
     uart = initRadioUart();
 
     //UART_write(print, echoPrompt, sizeof(echoPrompt));
-    
+    HalfDuplexUart_t hdu = {
+       .uart= uart,
+       .gpio= CONFIG_GPIO_UART_CTRL // TODO: change
+    };
 
 
     /* Loop forever echoing */
-    ProcessPackets(uart);
+    ProcessPackets(hdu);
 }
 
 UART_Handle initRadioUart()

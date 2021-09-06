@@ -1,7 +1,7 @@
 #include "half_duplex_uart.h"
 
 
-int HduWrite(HalfDuplexUart_t hdu, uint8_t* packetBuffer, size_t length);
+int HduWrite(HalfDuplexUart_t hdu, uint8_t* packetBuffer, size_t length)
 {
     GPIO_setConfig(hdu.gpio, 0);
     int bytesWritten = UART_write(hdu.uart, packetBuffer, length);
