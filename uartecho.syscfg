@@ -11,6 +11,8 @@
 const GPIO  = scripting.addModule("/ti/drivers/GPIO");
 const GPIO1 = GPIO.addInstance();
 const GPIO2 = GPIO.addInstance();
+const PWM   = scripting.addModule("/ti/drivers/PWM", {}, false);
+const PWM1  = PWM.addInstance();
 const RTOS  = scripting.addModule("/ti/drivers/RTOS");
 const UART  = scripting.addModule("/ti/drivers/UART");
 const UART1 = UART.addInstance();
@@ -26,6 +28,9 @@ GPIO1.initialOutputState = "High";
 GPIO2.$name           = "CONFIG_GPIO_UART_CTRL";
 GPIO2.mode            = "Output";
 GPIO2.gpioPin.$assign = "expansion.17";
+
+PWM1.$name                = "CONFIG_PWM_AILERON";
+PWM1.timer.pwmPin.$assign = "boosterpack.40";
 
 const Power                   = scripting.addModule("/ti/drivers/Power", {}, false);
 Power.performanceLevel3.$name = "ti_drivers_power_PowerMSP432PerfLevels0";
@@ -47,6 +52,7 @@ UART2.uart.$assign = "EUSCI_A3";
  * re-solve from scratch.
  */
 GPIO1.gpioPin.$suggestSolution    = "ball.4";
+PWM1.timer.$suggestSolution       = "Timer_A0";
 UART1.uart.$suggestSolution       = "EUSCI_A0";
 UART1.uart.txPin.$suggestSolution = "ball.7";
 UART1.uart.rxPin.$suggestSolution = "ball.6";
