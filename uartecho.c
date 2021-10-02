@@ -64,7 +64,7 @@
 
 UART_Handle debugUart();
 UART_Handle initRadioUart();
-void initPWM();
+PWM_Handle initPWM();
 
 
 /*
@@ -89,7 +89,7 @@ void mainThread(void *arg0)
 
     GPIO_write(CONFIG_GPIO_UART_CTRL, 1);
 
-    initPWM();
+    PWM_Handle pwmAileron = initPWM();
 
     //print = debugUart();
     uart = initRadioUart();
@@ -115,7 +115,7 @@ void mainThread(void *arg0)
      */
 
     /* Loop forever echoing */
-    ProcessPackets(hdu);
+    ProcessPackets(hdu, pwmAileron);
 }
 
 UART_Handle initRadioUart()
@@ -171,12 +171,14 @@ UART_Handle debugUart(){
 }
 
 
-void initPWM()
+PWM_Handle initPWM()
 {
 
     // issues:
     // figuring out how many servos are supported
     // converting 3.3V pwm to 5V PVM
+
+    // file:///C:/ti/simplelink_msp432p4_sdk_3_40_01_02/docs/tidrivers/doxygen/html/_p_w_m_timer_m_s_p432_8h.html
 
     PWM_Handle pwm;
     PWM_Params pwmParams;
@@ -197,7 +199,7 @@ void initPWM()
         while (1);
     }
     PWM_start(pwm);                          // start PWM with 0% duty cycle
-    dutyValue = (uint32_t) (((uint64_t) PWM_DUTY_FRACTION_MAX * 100) / 100);
+    dutyValue = (uint32_t) (((uint64_t) PWM_DUTY_FRACTION_MAX * 5) / 100);
     PWM_setDuty(pwm, dutyValue);  // set duty cycle to 37%
-
+    return pwm;
 }

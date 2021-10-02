@@ -7,6 +7,8 @@
 #include "srxl2.h"
 #include "half_duplex_uart.h"
 
+#include <ti/drivers/PWM.h>
+
 
 uint16_t channelData[SRXL_MAX_CHANNELS] = {0};
 uint8_t recieverId = 0;
@@ -124,7 +126,7 @@ bool ProcessHandshake(SrxlPacket_t* packet)
     return false;
 }
 
-static bool ProcessCtrlData(SrxlPacket_t* packet)
+static bool ProcessCtrlData(SrxlPacket_t* packet, PWM_Handle* pwm)
 {
     size_t i;
     SrxlControlData_t* ctrlData = (SrxlControlData_t*) packet;
@@ -150,12 +152,16 @@ static bool ProcessCtrlData(SrxlPacket_t* packet)
         break;
     }
 
-
+    // set the servo
+    float percentage = ( (channelData[1] - 343)/(1705.0-343));
+    float pwm_percentage = 0.05*percentage + 0.05;
+    uint32_t dutyValue = (uint32_t) ((PWM_DUTY_FRACTION_MAX ) * pwm_percentage);
+    PWM_setDuty(*pwm, dutyValue);  // set duty cycle to 37%
 
     return false;
 }
 
-static bool ProcessMessage(SrxlPacket_t* packet)
+static bool ProcessMessage(SrxlPacket_t* packet, PWM_Handle* pwm)
 {
     bool reply = false;
 
@@ -168,7 +174,7 @@ static bool ProcessMessage(SrxlPacket_t* packet)
     case SRXL_BIND_INFO_ID:
         break;
     case SRXL_CTRL_ID:
-        ProcessCtrlData(packet);
+        ProcessCtrlData(packet, pwm);
 //        CreateBindInfoRequest(packet);
 //        reply=true;
         break;
@@ -187,7 +193,7 @@ void Init(UART_Handle uart)
 
 
 // TODO: all data values are in little endian. verify that MSP 432 is little endian
-void ProcessPackets(HalfDuplexUart_t hdu)
+void ProcessPackets(HalfDuplexUart_t hdu, PWM_Handle pwm)
 {
     SrxlPacket_t   packet;
 
@@ -211,7 +217,7 @@ void ProcessPackets(HalfDuplexUart_t hdu)
 
             if(verifyPacket( (void*) &packet, packet.header.length))
             {
-                bool reply = ProcessMessage(&packet);
+                bool reply = ProcessMessage(&packet, &pwm);
                 if(reply)
                 {
                     HduWrite(hdu, &packet, packet.header.length);

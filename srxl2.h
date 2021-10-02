@@ -4,6 +4,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <ti/drivers/UART.h>
+#include <ti/drivers/PWM.h>
+
 
 #include "half_duplex_uart.h"
 
@@ -120,6 +122,6 @@ typedef struct
 } PACKED SrxlBindInfo_t;
 
 
-void ProcessPackets(HalfDuplexUart_t hdu);
+void ProcessPackets(HalfDuplexUart_t hdu,  PWM_Handle pwm);
 
 #endif
