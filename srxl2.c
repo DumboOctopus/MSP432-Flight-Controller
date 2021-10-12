@@ -5,8 +5,13 @@
  *      Author: Neil
  */
 #include "srxl2.h"
+#include "half_duplex_uart.h"
+
+#include <ti/drivers/PWM.h>
 
 
+uint16_t channelData[SRXL_MAX_CHANNELS] = {0};
+uint8_t recieverId = 0;
 
 // TODO: in the future, look into MSP 432's CRC hardware
 uint16_t Crc16(uint16_t crc, uint8_t data)
@@ -28,6 +33,22 @@ uint16_t Crc16(uint16_t crc, uint8_t data)
 }
 
 
+void addCRC(uint8_t* buf, int maxLength) {
+    uint16_t computedCRC = 0;
+    size_t i;
+
+    // last two bytes are for crc
+    for(i = 0; i < maxLength -2; ++i){
+        computedCRC = Crc16(computedCRC, buf[i]);
+    }
+
+    // upper byte because big endian
+    // TODO: use FreeRTOS_htons
+    buf[maxLength-2] = (uint8_t) (computedCRC >> 8);
+    buf[maxLength-1] = (uint8_t) (computedCRC & 0xff);
+
+}
+
 bool verifyPacket(uint8_t* buf, int length)
 {
     uint8_t i;
@@ -41,8 +62,8 @@ bool verifyPacket(uint8_t* buf, int length)
     return computedCRC = rxCRC;
 }
 
-// ========= Create Message Functions
-void CreateHandshake(SrxlHandshake_t*  packet)
+// ========= Create Message Functions ==========
+void CreateHandshake(SrxlHandshake_t* packet)
 {
     packet->header.srxlID = SPEKTRUM_SRXL_ID;
     packet->header.packetType = SRXL_HANDSHAKE_ID;
@@ -54,79 +75,154 @@ void CreateHandshake(SrxlHandshake_t*  packet)
     packet->priority = 10;
     // TODO: look up if higher baud rate is supported
     // for MSP 432
-    packet->baud_rate = 0;
+    packet->baudSupported = 0;
     // TODO: if later want to fancy stuff, change this
     packet->info = 0;
     packet->uid = SRXL_HANDSHAKE_UID;
+
+    addCRC((uint8_t*) packet, SRXL_HANDSHAKE_LENGTH);
+}
+
+void CreateBindInfoRequest(SrxlBindInfo_t* bindInfo)
+{
+    bindInfo->header.srxlID = SPEKTRUM_SRXL_ID;
+    bindInfo->header.packetType = SRXL_BIND_INFO_ID;
+    bindInfo->header.length = 21;
+
+
+    bindInfo->request = 0xB5;
+    bindInfo->deviceId = 0x21;
+
+    addCRC((uint8_t*) bindInfo, 21);
 }
 
 
 
-// ========== Processing Functions
+// ========== Processing Functions ===========
 
 /**
  * TODO: might want to handle switching of baud rate
  *
  */
-bool ProcessHandshake(uint8_t* packet)
+bool ProcessHandshake(SrxlPacket_t* packet)
 {
     SrxlHandshake_t* handshake = (SrxlHandshake_t*) packet;
     uint8_t dest_id = handshake->destDevID;
+    recieverId = handshake->srcDevID;
 
     // now write our response
     if(dest_id == 0xFF)
     {
         // commands everyone to set their baud rate.
+        CreateHandshake(handshake);
+        return true;
     }
     if(dest_id == SRXL_SRC_ID)
     {
-
+        CreateHandshake(handshake);
+        return true;
     }
+
+    return false;
 }
 
-
-
-
-static inline void ProcessMessage(uint8_t type, uint8_t* packetBuff)
+static bool ProcessCtrlData(SrxlPacket_t* packet, PWM_Handle* pwm)
 {
-    switch(type)
+    size_t i;
+    SrxlControlData_t* ctrlData = (SrxlControlData_t*) packet;
+    uint16_t* chnData;
+
+    switch(ctrlData->cmd)
     {
-    case SRXL_HANDSHAKE_ID:
-        ProcessHandshake(packetBuff);
+    case SRXL_CHANNEL_DATA_CMD:
+        // 0=thrust, 1=ailerons (343,1024, 1705) 2=elavator, 3=rudder, 5=ax1
+        chnData = &(ctrlData->channelData.values[0]);
+        for(i =0; i < SRXL_MAX_CHANNELS; i++)
+        {
+            if( ( (1 << i ) & ctrlData->channelData.mask ) != 0)
+            {
+                uint16_t actualData = *chnData >> 5;
+                chnData++; // move to next data point.
+                if(channelData[i] != actualData)
+                {
+                    channelData[i] = actualData;
+                }
+            }
+        }
         break;
     }
+
+    // set the servo
+    float percentage = ( (channelData[1] - 343)/(1705.0-343));
+    float pwm_percentage = 0.05*percentage + 0.05;
+    uint32_t dutyValue = (uint32_t) ((PWM_DUTY_FRACTION_MAX ) * pwm_percentage);
+    PWM_setDuty(*pwm, dutyValue);  // set duty cycle to 37%
+
+    return false;
 }
 
-// TODO: all data values are in little endian. verify that MSP 432 is little endian
-void ProcessPackets(UART_Handle uart)
+static bool ProcessMessage(SrxlPacket_t* packet, PWM_Handle* pwm)
 {
-    uint8_t        value;
-    uint8_t        packetBuffer[SRXL_MAX_BUFFER_SIZE];
+    bool reply = false;
+
+
+    switch(packet->header.packetType)
+    {
+    case SRXL_HANDSHAKE_ID:
+        reply = ProcessHandshake(packet);
+        break;
+    case SRXL_BIND_INFO_ID:
+        break;
+    case SRXL_CTRL_ID:
+        ProcessCtrlData(packet, pwm);
+//        CreateBindInfoRequest(packet);
+//        reply=true;
+        break;
+
+    }
+
+    return reply;
+}
+
+// ======================== non static functions =================//
+
+void Init(UART_Handle uart)
+{
+
+}
+
+
+// TODO: all data values are in little endian. verify that MSP 432 is little endian
+void ProcessPackets(HalfDuplexUart_t hdu, PWM_Handle pwm)
+{
+    SrxlPacket_t   packet;
 
     while (1) {
-        int_fast32_t bytesRead = UART_read(uart, &value, 1);
+        int_fast32_t bytesRead = HduRead(hdu, &packet.header.srxlID, 1);
 
-        if(bytesRead > 0 && value == SPEKTRUM_SRXL_ID)
+        if(bytesRead > 0 && packet.header.srxlID == SPEKTRUM_SRXL_ID)
         {
-            uint8_t type, length;
-            UART_read(uart, &type, 1);
-            UART_read(uart, &length, 1);
+            HduRead(hdu, &packet.header.packetType, 1);
+            HduRead(hdu, &packet.header.length, 1);
 
             // next we will read the entire packet and store it in
             // a buffer
-            packetBuffer[0] = SPEKTRUM_SRXL_ID;
-            packetBuffer[1] = type;
-            packetBuffer[2] = length;
 
             // TODO: handle case where UART_read does not read all bytes
-            UART_read(uart, &packetBuffer[3], length-3);
+            HduRead(
+                hdu, 
+                packet.packetBuffer, 
+                packet.header.length-sizeof(packet.header)
+            );
 
-            if(verifyPacket(packetBuffer, length))
+            if(verifyPacket( (void*) &packet, packet.header.length))
             {
-                printf("hi");
+                bool reply = ProcessMessage(&packet, &pwm);
+                if(reply)
+                {
+                    HduWrite(hdu, &packet, packet.header.length);
+                }
             }
         }
-        //UART_write(print, &value, 1);
-        //UART_write(uart, &value, 1);
     }
 }

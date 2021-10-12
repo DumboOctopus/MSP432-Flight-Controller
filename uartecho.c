@@ -32,6 +32,13 @@
  * green wire: transmit
  * blue wire: recieve
  *
+ * pin layout:
+ *  5V: -> tristate buffer power
+ *  GND -> tristate buffer ground
+ *  9.4: half duplex uart toggle
+ *  9.6 -> uart receive
+ *  9.7 -> uart transmit
+ *
  */
 
 /*
@@ -44,14 +51,21 @@
 /* Driver Header files */
 #include <ti/drivers/GPIO.h>
 #include <ti/drivers/UART.h>
+#include <ti/drivers/Timer.h>
+#include <ti/drivers/PWM.h>
+// TODO: currently using simplelink but should check if driverlib works with RTOS
 
 /* Driver configuration */
 #include "ti_drivers_config.h"
 
+// internal dependencies
 #include "srxl2.h"
+#include "half_duplex_uart.h"
 
 UART_Handle debugUart();
 UART_Handle initRadioUart();
+PWM_Handle initPWM();
+
 
 /*
  *  ======== mainThread ========
@@ -71,14 +85,37 @@ void mainThread(void *arg0)
     /* Turn on user LED */
     GPIO_write(CONFIG_GPIO_LED_0, CONFIG_GPIO_LED_ON);
 
+    GPIO_setConfig(CONFIG_GPIO_UART_CTRL, GPIO_CFG_OUT_STD | GPIO_CFG_OUT_HIGH);
+
+    GPIO_write(CONFIG_GPIO_UART_CTRL, 1);
+
+    PWM_Handle pwmAileron = initPWM();
 
     //print = debugUart();
     uart = initRadioUart();
 
     //UART_write(print, echoPrompt, sizeof(echoPrompt));
-    printf("hello world\n");
+    HalfDuplexUart_t hdu = {
+       .uart= uart,
+       .gpio= CONFIG_GPIO_UART_CTRL
+    };
+
+    /*
+     * Servo control notes
+     *
+     * frequncy = 50 Hz probably
+     *
+     *
+     * Init():
+     *  reset():
+     *      write8
+     *  set frequency
+     *
+     *
+     */
+
     /* Loop forever echoing */
-    ProcessPackets(uart);
+    ProcessPackets(hdu, pwmAileron);
 }
 
 UART_Handle initRadioUart()
@@ -131,4 +168,38 @@ UART_Handle debugUart(){
    }
    return uart;
 
+}
+
+
+PWM_Handle initPWM()
+{
+
+    // issues:
+    // figuring out how many servos are supported
+    // converting 3.3V pwm to 5V PVM
+
+    // file:///C:/ti/simplelink_msp432p4_sdk_3_40_01_02/docs/tidrivers/doxygen/html/_p_w_m_timer_m_s_p432_8h.html
+
+    PWM_Handle pwm;
+    PWM_Params pwmParams;
+    uint32_t   dutyValue;
+    // Initialize the PWM driver.
+    PWM_init();
+    // Initialize the PWM parameters
+    PWM_Params_init(&pwmParams);
+    pwmParams.idleLevel = PWM_IDLE_LOW;      // Output low when PWM is not running
+    pwmParams.periodUnits = PWM_PERIOD_HZ;   // Period is in Hz
+    pwmParams.periodValue = 50;             // 1MHz
+    pwmParams.dutyUnits = PWM_DUTY_FRACTION; // Duty is in fractional percentage
+    pwmParams.dutyValue = 0;                 // 0% initial duty cycle
+    // Open the PWM instance
+    pwm = PWM_open(CONFIG_PWM_AILERON, &pwmParams);
+    if (pwm == NULL) {
+        // PWM_open() failed
+        while (1);
+    }
+    PWM_start(pwm);                          // start PWM with 0% duty cycle
+    dutyValue = (uint32_t) (((uint64_t) PWM_DUTY_FRACTION_MAX * 5) / 100);
+    PWM_setDuty(pwm, dutyValue);  // set duty cycle to 37%
+    return pwm;
 }
